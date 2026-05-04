@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -416,11 +416,110 @@
     }
     .stat-pill strong { color: var(--text); font-size: 15px; display: block; margin-bottom: 2px; }
 
+    /* ── Players tab ─────────────────────────────────────────────────── */
+    .player-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--border);
+      transition: background .1s;
+    }
+    .player-row:last-child { border-bottom: none; }
+    .player-row:hover { background: var(--card2); }
+    .player-row.top-player {
+      background: var(--top);
+      border-left: 3px solid var(--win);
+    }
+    .player-rank {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--muted);
+      width: 24px;
+      flex-shrink: 0;
+      text-align: center;
+    }
+    .player-rank.gold   { color: #f0c040; }
+    .player-rank.silver { color: #aab0c4; }
+    .player-rank.bronze { color: #cd7f50; }
+    .player-info { flex: 1; min-width: 0; }
+    .player-name {
+      font-weight: 700;
+      font-size: 15px;
+      color: #fff;
+    }
+    .player-meta {
+      font-size: 11px;
+      color: var(--muted);
+      margin-top: 2px;
+    }
+    .player-meta .partner { color: var(--accent); }
+    .player-wl {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex-shrink: 0;
+    }
+    .wl-group { text-align: center; }
+    .wl-group .val {
+      font-size: 14px;
+      font-weight: 700;
+      display: block;
+    }
+    .wl-group .lbl {
+      font-size: 10px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .player-winpct {
+      flex-shrink: 0;
+      width: 60px;
+      text-align: right;
+    }
+    .winpct-val {
+      font-size: 15px;
+      font-weight: 800;
+    }
+    .winpct-bar-wrap {
+      width: 100%;
+      height: 4px;
+      background: var(--border2);
+      border-radius: 2px;
+      margin-top: 4px;
+      overflow: hidden;
+    }
+    .winpct-bar {
+      height: 100%;
+      border-radius: 2px;
+      background: var(--win);
+      transition: width .4s ease;
+    }
+    .player-row.no-games { opacity: 0.35; }
+    .sort-row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      margin-bottom: 14px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .sort-row select {
+      background: var(--card2);
+      border: 1px solid var(--border2);
+      color: var(--text);
+      border-radius: 7px;
+      padding: 6px 10px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+
     @media (max-width: 480px) {
       main { padding: 14px 10px; }
       .vs-row { grid-template-columns: 1fr; }
       .vs-badge { display: none; }
       .btn-win, .btn-tie { padding: 13px; font-size: 14px; }
+      .player-meta { display: none; }
     }
   </style>
 </head>
@@ -435,7 +534,8 @@
 </header>
 
 <nav id="nav">
-  <button class="active" onclick="switchTab('lb')">Leaderboard</button>
+  <button class="active" onclick="switchTab('lb')">Combos</button>
+  <button onclick="switchTab('players')">Players</button>
   <button onclick="switchTab('record')">Record</button>
   <button onclick="switchTab('log')">Match Log</button>
   <button onclick="switchTab('data')">Data</button>
@@ -470,6 +570,22 @@
           <tbody id="lb-body"></tbody>
         </table>
       </div>
+    </div>
+  </div>
+
+  <!-- ── Players ──────────────────────────────────────────────────── -->
+  <div id="tab-players" class="tab-panel">
+    <div class="sort-row">
+      Sort by:
+      <select id="player-sort" onchange="renderPlayers()">
+        <option value="winpct">Win rate</option>
+        <option value="diff">+/- differential</option>
+        <option value="wins">Total wins</option>
+        <option value="gp">Games played</option>
+      </select>
+    </div>
+    <div class="card" style="padding:0; overflow:hidden">
+      <div id="players-body"></div>
     </div>
   </div>
 
@@ -591,9 +707,10 @@ function switchTab(id) {
   document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
   document.getElementById('tab-' + id).classList.add('active');
   const btns = document.querySelectorAll('nav button');
-  const order = ['lb','record','log','data'];
+  const order = ['lb','players','record','log','data'];
   btns[order.indexOf(id)].classList.add('active');
   if (id === 'lb') renderLB();
+  if (id === 'players') renderPlayers();
   if (id === 'log') renderLog();
   if (id === 'data') renderData();
 }
@@ -659,6 +776,100 @@ function renderLB() {
         <td class="num"><span class="stat-t">${r.t}</span></td>
         <td class="num"><span class="diff ${diffClass}">${r.played ? diffStr : '—'}</span></td>
       </tr>`;
+  }).join('');
+}
+
+// ── Players ────────────────────────────────────────────────────────────────
+function computePlayerStats() {
+  const stats = {};
+  PLAYERS.forEach(p => { stats[p] = {w:0, l:0, t:0, partners:{}}; });
+
+  log.forEach(e => {
+    const winners = [e.t1p1, e.t1p2];
+    const losers  = [e.t2p1, e.t2p2];
+    const isWin = e.result === 'win';
+
+    winners.forEach(p => {
+      if (!stats[p]) stats[p] = {w:0,l:0,t:0,partners:{}};
+      if (isWin) stats[p].w++; else stats[p].t++;
+      const partner = winners.find(x => x !== p);
+      stats[p].partners[partner] = (stats[p].partners[partner] || 0) + (isWin ? 1 : 0);
+    });
+    losers.forEach(p => {
+      if (!stats[p]) stats[p] = {w:0,l:0,t:0,partners:{}};
+      if (isWin) stats[p].l++; else stats[p].t++;
+      const partner = losers.find(x => x !== p);
+      if (!stats[p].partners[partner]) stats[p].partners[partner] = 0;
+    });
+  });
+  return stats;
+}
+
+function renderPlayers() {
+  const stats = computePlayerStats();
+  const sortBy = document.getElementById('player-sort').value;
+
+  let rows = PLAYERS.map(p => {
+    const s = stats[p];
+    const gp = s.w + s.l + s.t;
+    const decisive = s.w + s.l;
+    const winpct = decisive > 0 ? s.w / decisive : -1;
+    const diff = s.w - s.l;
+    const bestPartner = Object.entries(s.partners)
+      .filter(([,wins]) => wins > 0)
+      .sort((a,b) => b[1]-a[1])[0];
+    return {name:p, ...s, gp, decisive, winpct, diff, bestPartner};
+  });
+
+  rows.sort((a, b) => {
+    const aPlayed = a.gp > 0, bPlayed = b.gp > 0;
+    if (aPlayed !== bPlayed) return aPlayed ? -1 : 1;
+    if (!aPlayed) return a.name.localeCompare(b.name);
+    if (sortBy === 'winpct') {
+      if (b.winpct !== a.winpct) return b.winpct - a.winpct;
+      return b.w - a.w;
+    }
+    if (sortBy === 'diff') {
+      if (b.diff !== a.diff) return b.diff - a.diff;
+      return b.winpct - a.winpct;
+    }
+    if (sortBy === 'wins') return b.w - a.w;
+    if (sortBy === 'gp')   return b.gp - a.gp;
+    return 0;
+  });
+
+  const body = document.getElementById('players-body');
+  let rank = 0;
+  body.innerHTML = rows.map((r, i) => {
+    const noGames = r.gp === 0;
+    if (!noGames) rank++;
+    const isTop = rank === 1 && !noGames;
+    const rankClass = rank === 1 ? 'gold' : rank === 2 ? 'silver' : rank === 3 ? 'bronze' : '';
+    const rankLabel = noGames ? '—' : rank;
+    const pct = r.decisive > 0 ? Math.round(r.winpct * 100) : null;
+    const pctColor = pct === null ? 'var(--muted)' : pct >= 60 ? 'var(--win)' : pct >= 40 ? 'var(--text)' : 'var(--loss)';
+    const partnerText = r.bestPartner
+      ? `Best partner: <span class="partner">${r.bestPartner[0]}</span> (${r.bestPartner[1]}W)`
+      : 'No wins yet';
+    return `
+      <div class="player-row ${isTop ? 'top-player' : ''} ${noGames ? 'no-games' : ''}">
+        <div class="player-rank ${rankClass}">${rankLabel}</div>
+        <div class="player-info">
+          <div class="player-name">${r.name}</div>
+          <div class="player-meta">${noGames ? 'No games played' : partnerText}</div>
+        </div>
+        <div class="player-wl">
+          <div class="wl-group"><span class="val stat-w">${r.w}</span><span class="lbl">W</span></div>
+          <div class="wl-group"><span class="val stat-l">${r.l}</span><span class="lbl">L</span></div>
+          <div class="wl-group"><span class="val stat-t">${r.t}</span><span class="lbl">T</span></div>
+        </div>
+        <div class="player-winpct">
+          <span class="winpct-val" style="color:${pctColor}">${pct !== null ? pct + '%' : '—'}</span>
+          <div class="winpct-bar-wrap">
+            <div class="winpct-bar" style="width:${pct ?? 0}%; background:${pctColor}"></div>
+          </div>
+        </div>
+      </div>`;
   }).join('');
 }
 
