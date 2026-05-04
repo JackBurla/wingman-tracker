@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Wingman Tracker</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -416,6 +417,21 @@
     }
     .stat-pill strong { color: var(--text); font-size: 15px; display: block; margin-bottom: 2px; }
 
+    /* ── Loading ─────────────────────────────────────────────────────── */
+    .loading-bar {
+      position: fixed; top: 0; left: 0; right: 0; height: 3px;
+      background: linear-gradient(90deg, var(--accent), var(--win));
+      z-index: 999;
+      animation: loadpulse 1s ease-in-out infinite alternate;
+    }
+    @keyframes loadpulse { from { opacity: 1 } to { opacity: 0.4 } }
+    .conn-badge {
+      font-size: 11px; padding: 3px 9px; border-radius: 20px;
+      font-weight: 700; letter-spacing: 0.5px; margin-left: 8px;
+    }
+    .conn-badge.live { background: var(--win-bg); color: var(--win); }
+    .conn-badge.err  { background: var(--loss-bg); color: var(--loss); }
+
     /* ── Players tab ─────────────────────────────────────────────────── */
     .player-row {
       display: flex;
@@ -528,7 +544,7 @@
 <header>
   <div class="logo">2v2</div>
   <div>
-    <h1>Wingman Tracker</h1>
+    <h1>Wingman Tracker<span class="conn-badge" id="conn-badge"></span></h1>
     <div class="sub">CS2 · 7 players</div>
   </div>
 </header>
@@ -643,44 +659,58 @@
 </main>
 
 <div class="toast" id="toast"></div>
+<div class="loading-bar" id="loading-bar" style="display:none"></div>
 
 <script>
+// ── Supabase ───────────────────────────────────────────────────────────────
+const SUPABASE_URL = 'https://izytuyxkqohzsnapockc.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml6eXR1eXhrcW9oenNuYXBvY2tjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc4NTA2NDYsImV4cCI6MjA5MzQyNjY0Nn0.OnEzzlfkRRiSGwME8iwfwpeCzW6A4vP-rr_A-MioGFM';
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
 // ── Constants ──────────────────────────────────────────────────────────────
 const PLAYERS = ['Curtis', 'George', 'Jack', 'Jake', 'Reber', 'Tom', 'Tommy'];
-const LS_KEY = 'wingman_log_v1';
-
-const SEED = [
-  {game:1,  t1p1:'Tommy', t1p2:'Curtis', t2p1:'Jake', t2p2:'Jack',   result:'win'},
-  {game:2,  t1p1:'Tommy', t1p2:'Curtis', t2p1:'Jake', t2p2:'Jack',   result:'win'},
-  {game:3,  t1p1:'Tommy', t1p2:'Jack',   t2p1:'Curtis',t2p2:'Jake',  result:'win'},
-  {game:4,  t1p1:'Tommy', t1p2:'Jack',   t2p1:'Curtis',t2p2:'Jake',  result:'win'},
-  {game:5,  t1p1:'Tommy', t1p2:'Jake',   t2p1:'Jack',  t2p2:'Curtis',result:'win'},
-  {game:6,  t1p1:'Tommy', t1p2:'Jake',   t2p1:'Jack',  t2p2:'Curtis',result:'win'},
-  {game:7,  t1p1:'Jake',  t1p2:'Jack',   t2p1:'Tommy', t2p2:'Curtis',result:'win'},
-  {game:8,  t1p1:'Tommy', t1p2:'Curtis', t2p1:'Jake',  t2p2:'Jack',  result:'win'},
-  {game:9,  t1p1:'Tommy', t1p2:'Jack',   t2p1:'Curtis',t2p2:'Jake',  result:'tie'},
-  {game:10, t1p1:'Tommy', t1p2:'Jack',   t2p1:'Curtis',t2p2:'Jake',  result:'win'},
-  {game:11, t1p1:'Tommy', t1p2:'Jake',   t2p1:'Jack',  t2p2:'Curtis',result:'win'},
-  {game:12, t1p1:'Tommy', t1p2:'Jake',   t2p1:'Jack',  t2p2:'Curtis',result:'tie'},
-  {game:13, t1p1:'Tommy', t1p2:'Curtis', t2p1:'Jake',  t2p2:'Jack',  result:'win'},
-  {game:14, t1p1:'Tommy', t1p2:'Curtis', t2p1:'Jake',  t2p2:'Jack',  result:'win'},
-];
 
 // ── State ──────────────────────────────────────────────────────────────────
 let log = [];
+let isLoading = false;
 
-function load() {
-  const raw = localStorage.getItem(LS_KEY);
-  if (raw) {
-    try { log = JSON.parse(raw); return; } catch(e) {}
-  }
-  log = SEED.map(e => ({...e}));
-  save();
+function setLoading(v) {
+  isLoading = v;
+  const bar = document.getElementById('loading-bar');
+  if (bar) bar.style.display = v ? 'block' : 'none';
 }
 
-function save() {
-  localStorage.setItem(LS_KEY, JSON.stringify(log));
+function setConn(state) {
+  const badge = document.getElementById('conn-badge');
+  if (!badge) return;
+  if (state === 'live') { badge.textContent = 'LIVE'; badge.className = 'conn-badge live'; }
+  else { badge.textContent = 'OFFLINE'; badge.className = 'conn-badge err'; }
 }
+
+async function load() {
+  setLoading(true);
+  const { data, error } = await sb.from('matches').select('*').order('game', { ascending: true });
+  setLoading(false);
+  if (error) { setConn('err'); console.error(error); return; }
+  setConn('live');
+  log = data.map(r => ({ game: r.game, t1p1: r.t1p1, t1p2: r.t1p2, t2p1: r.t2p1, t2p2: r.t2p2, result: r.result }));
+  renderActive();
+}
+
+function renderActive() {
+  const active = document.querySelector('.tab-panel.active');
+  if (!active) return;
+  const id = active.id.replace('tab-', '');
+  if (id === 'lb') renderLB();
+  else if (id === 'players') renderPlayers();
+  else if (id === 'log') renderLog();
+  else if (id === 'data') renderData();
+}
+
+// ── Real-time ──────────────────────────────────────────────────────────────
+sb.channel('matches-rt')
+  .on('postgres_changes', { event: '*', schema: 'public', table: 'matches' }, () => { load(); })
+  .subscribe();
 
 // ── Logic ──────────────────────────────────────────────────────────────────
 function comboKey(a, b) { return [a, b].sort().join(' & '); }
@@ -886,7 +916,7 @@ function populateSelects() {
     PLAYERS.map(p => `<option value="${p}">${p}</option>`).join('');
 }
 
-function recordResult(result) {
+async function recordResult(result) {
   const ids = ['t1p1','t1p2','t2p1','t2p2'];
   const vals = ids.map(id => document.getElementById(id).value);
   const errEl = document.getElementById('rec-err');
@@ -912,14 +942,17 @@ function recordResult(result) {
   errEl.textContent = '';
 
   const nextGame = log.length ? Math.max(...log.map(e => e.game)) + 1 : 1;
-  log.push({game: nextGame, t1p1: vals[0], t1p2: vals[1], t2p1: vals[2], t2p2: vals[3], result});
-  save();
+  const entry = { game: nextGame, t1p1: vals[0], t1p2: vals[1], t2p1: vals[2], t2p2: vals[3], result };
+
+  setLoading(true);
+  const { error } = await sb.from('matches').insert(entry);
+  setLoading(false);
+  if (error) { showToast('Error saving result!'); console.error(error); return; }
 
   const msg = result === 'win'
     ? `${vals[0]} & ${vals[1]} beat ${vals[2]} & ${vals[3]}!`
     : `Tie: ${vals[0]} & ${vals[1]} vs ${vals[2]} & ${vals[3]}`;
   showToast(msg);
-
   ids.forEach(id => { document.getElementById(id).value = ''; });
 }
 
@@ -952,11 +985,12 @@ function renderLog() {
   }).join('');
 }
 
-function deleteGame(gameNum) {
+async function deleteGame(gameNum) {
   if (!confirm(`Delete game #${gameNum}?`)) return;
-  log = log.filter(e => e.game !== gameNum);
-  save();
-  renderLog();
+  setLoading(true);
+  const { error } = await sb.from('matches').delete().eq('game', gameNum);
+  setLoading(false);
+  if (error) { showToast('Error deleting!'); console.error(error); return; }
 }
 
 // ── Data ───────────────────────────────────────────────────────────────────
@@ -984,7 +1018,7 @@ function copyCSV() {
   navigator.clipboard.writeText(toCSV()).then(() => showToast('Copied to clipboard!'));
 }
 
-function importCSV() {
+async function importCSV() {
   const raw = document.getElementById('csv-import').value.trim();
   if (!raw) return;
   const lines = raw.split('\n').map(l => l.trim()).filter(Boolean);
@@ -1006,19 +1040,25 @@ function importCSV() {
   }
   if (!parsed.length) { alert('No valid rows found.'); return; }
   if (!confirm(`Replace all data with ${parsed.length} imported games?`)) return;
-  log = parsed;
-  save();
+
+  setLoading(true);
+  const { error: delErr } = await sb.from('matches').delete().gte('id', 0);
+  if (delErr) { setLoading(false); showToast('Error clearing data!'); return; }
+  const { error: insErr } = await sb.from('matches').insert(parsed);
+  setLoading(false);
+  if (insErr) { showToast('Error importing!'); console.error(insErr); return; }
+
   document.getElementById('csv-import').value = '';
   showToast(`Imported ${parsed.length} games!`);
-  renderData();
 }
 
-function clearAll() {
+async function clearAll() {
   if (!confirm('Clear ALL match data? This cannot be undone.')) return;
-  log = [];
-  save();
+  setLoading(true);
+  const { error } = await sb.from('matches').delete().gte('id', 0);
+  setLoading(false);
+  if (error) { showToast('Error!'); return; }
   showToast('Data cleared.');
-  renderData();
 }
 
 // ── Toast ──────────────────────────────────────────────────────────────────
@@ -1032,9 +1072,8 @@ function showToast(msg) {
 }
 
 // ── Init ───────────────────────────────────────────────────────────────────
-load();
 populateSelects();
-renderLB();
+load();
 </script>
 </body>
 </html>
