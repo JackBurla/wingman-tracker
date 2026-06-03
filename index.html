@@ -842,13 +842,13 @@ function renderPlayers() {
   let rows = PLAYERS.map(p => {
     const s = stats[p];
     const gp = s.w + s.l + s.t;
-    const decisive = s.w + s.l;
-    const winpct = decisive > 0 ? s.w / decisive : -1;
+    const effW = s.w + s.t * 0.5;
+    const winpct = gp > 0 ? effW / gp : -1;
     const diff = s.w - s.l;
     const bestPartner = Object.entries(s.partners)
       .filter(([,wins]) => wins > 0)
       .sort((a,b) => b[1]-a[1])[0];
-    return {name:p, ...s, gp, decisive, winpct, diff, bestPartner};
+    return {name:p, ...s, gp, winpct, diff, bestPartner};
   });
 
   rows.sort((a, b) => {
@@ -876,7 +876,7 @@ function renderPlayers() {
     const isTop = rank === 1 && !noGames;
     const rankClass = rank === 1 ? 'gold' : rank === 2 ? 'silver' : rank === 3 ? 'bronze' : '';
     const rankLabel = noGames ? '—' : rank;
-    const pct = r.decisive > 0 ? Math.round(r.winpct * 100) : null;
+    const pct = r.gp > 0 ? Math.round(r.winpct * 100) : null;
     const pctColor = pct === null ? 'var(--muted)' : pct >= 60 ? 'var(--win)' : pct >= 40 ? 'var(--text)' : 'var(--loss)';
     const partnerText = r.bestPartner
       ? `Best partner: <span class="partner">${r.bestPartner[0]}</span> (${r.bestPartner[1]}W)`
