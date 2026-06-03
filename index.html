@@ -529,6 +529,27 @@
       font-size: 12px;
       cursor: pointer;
     }
+    .calc-note {
+      display: flex;
+      align-items: flex-start;
+      gap: 9px;
+      padding: 10px 13px;
+      margin-bottom: 12px;
+      background: var(--accent-dim);
+      border: 1px solid rgba(240,160,48,0.22);
+      border-radius: 8px;
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+    .calc-note-mark {
+      color: var(--accent);
+      font-weight: 800;
+      font-size: 15px;
+      line-height: 1.15;
+      flex-shrink: 0;
+    }
+    .calc-note strong { color: var(--text); font-weight: 600; }
 
     @media (max-width: 480px) {
       main { padding: 14px 10px; }
@@ -599,6 +620,10 @@
         <option value="wins">Total wins</option>
         <option value="gp">Games played</option>
       </select>
+    </div>
+    <div class="calc-note">
+      <span class="calc-note-mark">*</span>
+      <span><strong>Win rate</strong> uses (W + ½T) ÷ games played. Ties count as half a win and half a loss — W / L / T above stay whole numbers.</span>
     </div>
     <div class="card" style="padding:0; overflow:hidden">
       <div id="players-body"></div>
