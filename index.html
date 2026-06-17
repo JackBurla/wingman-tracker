@@ -316,9 +316,17 @@
       width: 28px;
       flex-shrink: 0;
     }
+    .log-date {
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.25;
+      width: 118px;
+      flex-shrink: 0;
+    }
     .log-teams {
       flex: 1;
       color: var(--text);
+      min-width: 170px;
     }
     .log-teams .winner { color: #fff; font-weight: 600; }
     .log-teams .loser { color: var(--muted); }
@@ -356,6 +364,20 @@
       margin-bottom: 14px;
     }
     .log-search:focus { outline: none; border-color: var(--accent); }
+    @media (max-width: 520px) {
+      .log-entry { flex-wrap: wrap; }
+      .log-date {
+        order: 2;
+        width: auto;
+        flex-basis: calc(100% - 38px);
+      }
+      .log-teams {
+        order: 3;
+        flex-basis: 100%;
+      }
+      .log-badge { order: 4; }
+      .log-del { order: 5; margin-left: auto; }
+    }
 
     /* ── Data tab ────────────────────────────────────────────────────── */
     textarea.csv-area {
@@ -718,7 +740,15 @@ async function load() {
   setLoading(false);
   if (error) { setConn('err'); console.error(error); return; }
   setConn('live');
-  log = data.map(r => ({ game: r.game, t1p1: r.t1p1, t1p2: r.t1p2, t2p1: r.t2p1, t2p2: r.t2p2, result: r.result }));
+  log = data.map(r => ({
+    game: r.game,
+    t1p1: r.t1p1,
+    t1p2: r.t1p2,
+    t2p1: r.t2p1,
+    t2p2: r.t2p2,
+    result: r.result,
+    created_at: r.created_at || null
+  }));
   renderActive();
 }
 
@@ -754,6 +784,24 @@ function computeStats() {
     else { stats[wk].t++; stats[lk].t++; }
   });
   return stats;
+}
+
+function formatMatchDateTime(value) {
+  if (!value) return 'No timestamp';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'No timestamp';
+  return new Intl.DateTimeFormat(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit'
+  }).format(date);
+}
+
+function csvEscape(value) {
+  const str = String(value ?? '');
+  return `"${str.replace(/"/g, '""')}"`;
 }
 
 // ── Tabs ───────────────────────────────────────────────────────────────────
@@ -999,6 +1047,7 @@ function renderLog() {
     return `
       <div class="log-entry">
         <span class="log-num">#${e.game}</span>
+        <span class="log-date">${formatMatchDateTime(e.created_at)}</span>
         <span class="log-teams">
           <span class="${isTie ? '' : 'winner'}">${e.t1p1} &amp; ${e.t1p2}</span>
           <span class="sep">${isTie ? '=' : '▶'}</span>
@@ -1020,9 +1069,9 @@ async function deleteGame(gameNum) {
 
 // ── Data ───────────────────────────────────────────────────────────────────
 function toCSV() {
-  const header = 'game,team1p1,team1p2,team2p1,team2p2,result';
+  const header = 'game,created_at,team1p1,team1p2,team2p1,team2p2,result';
   const rows = log.map(e =>
-    `${e.game},"${e.t1p1}","${e.t1p2}","${e.t2p1}","${e.t2p2}",${e.result}`
+    [e.game, e.created_at, e.t1p1, e.t1p2, e.t2p1, e.t2p2, e.result].map(csvEscape).join(',')
   );
   return [header, ...rows].join('\n');
 }
@@ -1049,19 +1098,33 @@ async function importCSV() {
   const lines = raw.split('\n').map(l => l.trim()).filter(Boolean);
   if (lines.length < 2) { alert('CSV looks empty.'); return; }
   const header = lines[0].toLowerCase();
-  if (!header.includes('team1p1')) { alert('Invalid CSV format.'); return; }
+  const headers = header.split(',').map(h => h.replace(/^"|"$/g, '').trim());
+  const idx = name => headers.indexOf(name);
+  const gameIdx = idx('game');
+  const createdAtIdx = idx('created_at');
+  const t1p1Idx = idx('team1p1');
+  const t1p2Idx = idx('team1p2');
+  const t2p1Idx = idx('team2p1');
+  const t2p2Idx = idx('team2p2');
+  const resultIdx = idx('result');
+  if ([gameIdx, t1p1Idx, t1p2Idx, t2p1Idx, t2p2Idx, resultIdx].some(i => i === -1)) {
+    alert('Invalid CSV format.');
+    return;
+  }
 
   const parsed = [];
   for (let i = 1; i < lines.length; i++) {
     const parts = lines[i].match(/(".*?"|[^,]+)(?=\s*,|\s*$)/g);
     if (!parts || parts.length < 6) continue;
-    const clean = parts.map(p => p.replace(/^"|"$/g,'').trim());
-    parsed.push({
-      game: parseInt(clean[0]),
-      t1p1: clean[1], t1p2: clean[2],
-      t2p1: clean[3], t2p2: clean[4],
-      result: clean[5]
-    });
+    const clean = parts.map(p => p.replace(/^"|"$/g,'').replace(/""/g, '"').trim());
+    const row = {
+      game: parseInt(clean[gameIdx]),
+      t1p1: clean[t1p1Idx], t1p2: clean[t1p2Idx],
+      t2p1: clean[t2p1Idx], t2p2: clean[t2p2Idx],
+      result: clean[resultIdx]
+    };
+    if (createdAtIdx !== -1 && clean[createdAtIdx]) row.created_at = clean[createdAtIdx];
+    parsed.push(row);
   }
   if (!parsed.length) { alert('No valid rows found.'); return; }
   if (!confirm(`Replace all data with ${parsed.length} imported games?`)) return;
